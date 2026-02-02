@@ -1,0 +1,31 @@
+{
+  "name": "jgames",
+  "version": "1.0.0",
+  "main": "main.js",
+  "description":"Jogos para crianças",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "keywords": [],
+  "author": "João Guimarães",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^40.1.0",
+    "electron-builder": "^26.7.0"
+  },
+  "build": {
+    "appId": "com.jgames.jogoseducativos",
+    "productName": "JGames",
+    "directories": {
+      "output": "build"
+    },
+    "files": [
+      "**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    }
+  }
+}
