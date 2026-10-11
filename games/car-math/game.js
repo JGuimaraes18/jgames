@@ -1,337 +1,737 @@
-(function initCarMath() {
-  const canvas = document.getElementById("gameCanvas");
-  if (!canvas) return;
+/**
+ * game.js — Módulo do jogo Car Math.
+ *
+ * Separa renderização/controle (aqui) das regras matemáticas (logic.js).
+ * Expõe em window.carMath um contrato de ciclo de vida:
+ *   init()    -> prepara imagens, listeners e inicia o loop
+ *   destroy() -> cancela RAF, remove listeners, limpa timers e estado
+ *   focusCanvas() -> dá foco ao canvas para uso por teclado
+ */
 
-  const ctx = canvas.getContext("2d");
-  const scoreEl = document.getElementById("score");
-  const highScoreNameEl = document.getElementById("highScoreName");
-  const highScoreValueEl = document.getElementById("highScoreValue");
+(function () {
+  "use strict";
 
-  canvas.width = 900;
-  canvas.height = 400;
+  function getStoredPlayerName() {
+    try {
+      const name =
+        window.GameStorage && window.GameStorage.getPlayerName
+          ? window.GameStorage.getPlayerName()
+          : "";
+      return name || "Jogador";
+    } catch (e) {
+      return "Jogador";
+    }
+  }
 
-  const BASE_PATH = "games/car-math/";
+  function createInstance() {
+    const L = window.CarMathLogic;
+    const canvas = document.getElementById("gameCanvas");
+    if (!L || !canvas) return null;
 
-  // ================== IMAGENS ==================
-  const background = new Image();
-  const carImg = new Image();
+    const ctx = canvas.getContext("2d");
+    const BASE_PATH = "games/car-math/";
 
-  background.src = `${BASE_PATH}assets/fundo.jpg`;
-  carImg.src = `${BASE_PATH}assets/carro.png`;
+    const CAR_WIDTH = 110;
+    const CAR_BOTTOM_OFFSET = 90;
+    const BG_SCALE = 1.1;
+    const BALL_SIZE = 40;
+    const BALL_RADIUS = BALL_SIZE / 2;
 
-  // ================== ESTADO ==================
-  let score = 0;
-  let paused = false;
-  let gameOver = false;
-  let gameOverHandled = false;
-  let restartAllowed = false;
-  let gameMode = "add";
-  let correctAnswer = 0;
-  let balls = [];
-  let ballSpeed = 1.5;
-  let lastHighScore = 0;
-  let isNewRecord = false;
-
-  // ================== CARRO ==================
-  const car = {
-    x: canvas.width / 2 - 50,
-    y: canvas.height - 60,
-    width: 100,
-    height: 50,
-    speed: 10
-  };
-
-  // ================== CONTROLES ==================
-  document.addEventListener("keydown", e => {
-    if (paused || gameOver) return;
-
-    if (e.key === "ArrowLeft" && car.x > 0) car.x -= car.speed;
-    if (e.key === "ArrowRight" && car.x + car.width < canvas.width)
-      car.x += car.speed;
-  });
-
-  canvas.addEventListener("click", () => {
-    if (!gameOver || !restartAllowed) return;
-    restartGame();
-  });
-
-  const pauseBtn = document.getElementById("pauseBtn");
-  if (pauseBtn) {
-    pauseBtn.onclick = () => {
-      paused = !paused;
-      pauseBtn.innerText = paused ? "▶️ Continuar" : "⏸️ Pausar";
+    const el = {
+      question: document.getElementById("questionText"),
+      score: document.getElementById("score"),
+      highScoreValue: document.getElementById("highScoreValue"),
+      highScoreName: document.getElementById("highScoreName"),
+      phaseValue: document.getElementById("phaseValue"),
+      phaseLabel: document.getElementById("phaseLabel"),
+      phaseProgress: document.getElementById("phaseProgress"),
+      phaseProgressBar: document.getElementById("phaseProgressBar"),
+      phaseProgressText: document.getElementById("phaseProgressText"),
+      pauseBtn: document.getElementById("pauseBtn"),
+      restartBtn: document.getElementById("restartBtn"),
+      overlay: document.getElementById("gameOverlay"),
+      overlayTitle: document.getElementById("overlayTitle"),
+      overlayText: document.getElementById("overlayText"),
+      overlayBtn: document.getElementById("overlayBtn"),
+      status: document.getElementById("gameStatus"),
+      touchLeft: document.getElementById("touchLeft"),
+      touchRight: document.getElementById("touchRight"),
+      canvasWrap: document.querySelector(".canvas-wrap"),
+      modeBtns: Array.prototype.slice.call(document.querySelectorAll("[data-mode]")),
+      diffBtns: Array.prototype.slice.call(document.querySelectorAll("[data-difficulty]")),
+      fsBtns: Array.prototype.slice.call(document.querySelectorAll("[data-action='fullscreen']")),
+      confirm: document.getElementById("confirmModal"),
+      confirmText: document.getElementById("confirmText"),
+      confirmOk: document.getElementById("confirmOk"),
+      confirmCancel: document.getElementById("confirmCancel")
     };
-  }
 
-  function setSpeed(value) {
-    ballSpeed = Number(value);
-    restartGame();
-  }
-  // ================== NOVA PERGUNTA ==================
-  function newQuestion() {
-    balls = [];
+    // ---- Estado ----
+    const state = {
+      mode: "add",
+      startPhase: L.DIFFICULTIES.easy.startPhase,
+      score: 0,
+      gameOver: false,
+      paused: false,
+      restartAllowed: false,
+      isNewRecord: false,
+      correctAnswer: 0,
+      lastWrong: null,
+      balls: []
+    };
 
-    let a = Math.floor(Math.random() * 10);
-    let b = Math.floor(Math.random() * 10);
-    let questionText = "";
+    const car = {
+      x: canvas.width / 2 - CAR_WIDTH / 2,
+      y: canvas.height - 50 - 10,
+      width: CAR_WIDTH,
+      height: 50,
+      speed: 8
+    };
 
-    if (gameMode === "add") {
-      correctAnswer = a + b;
-      questionText = `${a} + ${b} = ?`;
-    }
+    const carTrim = { sx: 0, sy: 0, sw: 0, sh: 0 };
 
-    if (gameMode === "sub") {
-      if (b > a) [a, b] = [b, a];
-      correctAnswer = a - b;
-      questionText = `${a} - ${b} = ?`;
-    }
+    const input = { left: false, right: false };
 
-    if (gameMode === "mul") {
-      correctAnswer = a * b;
-      questionText = `${a} × ${b} = ?`;
-    }
+    const progression = L.createProgression(state.startPhase);
 
-    if (gameMode === "div") {
-      // resultado inteiro entre 1 e 10
-      b = Math.floor(Math.random() * 9) + 1; // divisor (1–9)
-      correctAnswer = Math.floor(Math.random() * 10) + 1; // resultado
-      a = b * correctAnswer; // dividendo
+    const background = new Image();
+    const carImg = new Image();
 
-      questionText = `${a} ÷ ${b} = ?`;
-    }
+    let rafId = null;
+    let running = false;
+    let initialized = false;
+    let imagesLoaded = 0;
+    let levelUpTimer = null;
+    let feedbackTimer = null;
+    let confirmAction = null;
+    const disposers = [];
 
-    // if (gameMode === "free") {
-    //   questionText = "Modo Livre";
-    // }
-
-    const title = document.getElementById("title");
-    if (title) title.innerText = `Desafio: ${questionText}`;
-
-    const answers =
-      gameMode === "free" ? [1, 2, 3] : [correctAnswer];
-
-    while (answers.length < 3) {
-      const wrong = Math.floor(Math.random() * 20);
-      if (!answers.includes(wrong)) answers.push(wrong);
-    }
-
-    answers.sort(() => Math.random() - 0.5);
-
-    const spacing = canvas.width / (answers.length + 1);
-
-    answers.forEach((value, index) => {
-      balls.push({
-        x: spacing * (index + 1) - 20,
-        y: -50,
-        value,
-        speed: ballSpeed
+    function on(target, type, handler, options) {
+      if (!target || !target.addEventListener) return;
+      target.addEventListener(type, handler, options);
+      disposers.push(function () {
+        target.removeEventListener(type, handler, options);
       });
-    });
-  }
+    }
 
-  // ================== UPDATE ==================
-  function update() {
-    if (paused || gameOver) return;
+    function announce(message) {
+      if (el.status) el.status.textContent = message;
+    }
 
-    for (let ball of balls) {
-      ball.y += ball.speed;
+    // ---- HUD ----
+    function updateHud() {
+      if (el.score) el.score.textContent = state.score;
+      if (el.phaseValue) el.phaseValue.textContent = progression.phase;
+      if (el.phaseLabel) el.phaseLabel.textContent = progression.config.label;
+      const correct = progression.correctInPhase;
+      const required = progression.required;
+      const pct = Math.min(100, Math.round((correct / required) * 100));
+      if (el.phaseProgress) el.phaseProgress.style.width = pct + "%";
+      if (el.phaseProgressText) {
+        el.phaseProgressText.textContent =
+          progression.isMaxPhase() && progression.completedAll
+            ? "Fase máxima!"
+            : correct + " / " + required + " acertos";
+      }
+      if (el.phaseProgressBar) {
+        el.phaseProgressBar.setAttribute("aria-valuemax", String(required));
+        el.phaseProgressBar.setAttribute("aria-valuenow", String(correct));
+      }
+    }
 
-      if (
-        ball.y + 40 > car.y &&
-        ball.x < car.x + car.width &&
-        ball.x + 40 > car.x
-      ) {
-        // if (gameMode === "free" || ball.value === correctAnswer) {
-        if (ball.value === correctAnswer) {
-          score += 10;
-          scoreEl.innerText = score;
-          newQuestion();
-          return;
-        } else {
-          gameOver = true;
+    function updateRecordUI() {
+      let record = { player: "", highScore: 0 };
+      try {
+        if (window.GameStorage && window.GameStorage.get) {
+          record = window.GameStorage.get("car-math") || record;
+        }
+      } catch (e) {
+        /* mantém padrão */
+      }
+      if (el.highScoreValue) el.highScoreValue.textContent = record.highScore || 0;
+      if (el.highScoreName) {
+        el.highScoreName.textContent = record.highScore
+          ? record.player || "Jogador"
+          : "---";
+      }
+    }
+
+    // ---- Overlay ----
+    function showOverlay(title, text, btnLabel, onBtn) {
+      if (!el.overlay) return;
+      el.overlayTitle.textContent = title;
+      el.overlayText.textContent = text || "";
+      if (btnLabel) {
+        el.overlayBtn.textContent = btnLabel;
+        el.overlayBtn.classList.remove("hidden");
+        el.overlayBtn.onclick = onBtn;
+      } else {
+        el.overlayBtn.classList.add("hidden");
+        el.overlayBtn.onclick = null;
+      }
+      el.overlay.classList.remove("hidden");
+    }
+
+    function hideOverlay() {
+      if (el.overlay) el.overlay.classList.add("hidden");
+      if (el.overlayBtn) el.overlayBtn.onclick = null;
+    }
+
+    function askConfirm(text, onOk) {
+      confirmAction = onOk;
+      if (el.confirmText) el.confirmText.textContent = text;
+      if (el.confirm) el.confirm.classList.remove("hidden");
+      if (el.confirmOk) el.confirmOk.focus();
+    }
+
+    function closeConfirm() {
+      if (el.confirm) el.confirm.classList.add("hidden");
+      confirmAction = null;
+    }
+
+    // ---- Feedback visual ----
+    function flash(type) {
+      const wrap = el.canvasWrap;
+      if (!wrap) return;
+      wrap.classList.remove("flash-correct", "flash-wrong");
+      // força reflow para reiniciar a animação
+      void wrap.offsetWidth;
+      wrap.classList.add(type === "wrong" ? "flash-wrong" : "flash-correct");
+      clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(function () {
+        wrap.classList.remove("flash-correct", "flash-wrong");
+      }, 450);
+    }
+
+    // ---- Questão ----
+    function newQuestion() {
+      const question = L.generateQuestion(state.mode, progression.phase, Math.random);
+      const options = L.generateOptions(question, Math.random);
+
+      state.correctAnswer = question.answer;
+      if (el.question) el.question.textContent = question.text;
+
+      const spacing = canvas.width / (options.options.length + 1);
+      state.balls = options.options.map(function (value, index) {
+        return {
+          x: spacing * (index + 1) - BALL_RADIUS,
+          y: -BALL_SIZE,
+          value: value,
+          speed: progression.config.speed
+        };
+      });
+    }
+
+    // ---- Loop ----
+    function loop() {
+      if (!running) return;
+      update();
+      draw();
+      rafId = requestAnimationFrame(loop);
+    }
+
+    function update() {
+      if (state.paused || state.gameOver) return;
+
+      if (input.left) car.x -= car.speed;
+      if (input.right) car.x += car.speed;
+      if (car.x < 0) car.x = 0;
+      if (car.x + car.width > canvas.width) car.x = canvas.width - car.width;
+
+      for (let i = 0; i < state.balls.length; i++) {
+        const ball = state.balls[i];
+        ball.y += ball.speed;
+
+        const hitCar =
+          ball.y + BALL_SIZE > car.y &&
+          ball.x < car.x + car.width &&
+          ball.x + BALL_SIZE > car.x;
+
+        if (hitCar) {
+          if (L.checkAnswer(ball.value, state.correctAnswer)) {
+            handleCorrect();
+            return;
+          }
+          state.lastWrong = ball.value;
+          endGame("wrong");
+          break;
+        }
+
+        if (ball.y > canvas.height) {
+          endGame("lost");
+          break;
+        }
+      }
+    }
+
+    function handleCorrect() {
+      state.score += L.pointsForCorrect();
+      const advanced = progression.recordCorrect();
+      updateHud();
+      flash("correct");
+      announce("Resposta correta! +" + L.pointsForCorrect() + " pontos.");
+
+      newQuestion();
+
+      if (advanced) {
+        state.paused = true;
+        updateHud();
+        showOverlay(
+          "🎉 Fase " + progression.phase + "!",
+          progression.config.label + " — as bolas vieram mais rápidas!",
+          null,
+          null
+        );
+        announce("Você avançou para a fase " + progression.phase + ".");
+        clearTimeout(levelUpTimer);
+        levelUpTimer = setTimeout(function () {
+          hideOverlay();
+          state.paused = false;
+        }, 1400);
+      }
+    }
+
+    function endGame(reason) {
+      if (state.gameOver) return;
+      state.gameOver = true;
+      state.paused = false;
+      state.restartAllowed = true;
+      input.left = false;
+      input.right = false;
+
+      let previous = 0;
+      try {
+        if (window.GameStorage && window.GameStorage.get) {
+          const data = window.GameStorage.get("car-math");
+          previous = data ? data.highScore : 0;
+        }
+      } catch (e) {
+        previous = 0;
+      }
+
+      if (state.score > previous) {
+        state.isNewRecord = true;
+        try {
+          if (window.GameStorage && window.GameStorage.updateScore) {
+            window.GameStorage.updateScore("car-math", getStoredPlayerName(), state.score);
+          }
+        } catch (e) {
+          /* não interrompe o fim de jogo por falha de persistência */
         }
       }
 
-      if (ball.y > canvas.height) {
-        gameOver = true;
-      }
-    }
+      updateHud();
+      updateRecordUI();
+      flash("wrong");
 
-    if (gameOver && !gameOverHandled) {
-      gameOverHandled = true;
-      restartAllowed = true;
-
-      const previous =
-        GameStorage.get("car-math")?.highScore || 0;
-
-      if (score > previous) {
-        isNewRecord = true;
-        paused = true;
-
-        document
-          .getElementById("recordModal")
-          .classList.remove("hidden");
+      let text;
+      if (reason === "wrong") {
+        text =
+          "Você escolheu " + state.lastWrong + ". A resposta certa era " +
+          state.correctAnswer + ".";
       } else {
-        lastHighScore = previous;
+        text =
+          "A bola passou! A resposta certa era " + state.correctAnswer + ".";
       }
-    }
-  }
+      text += " Você fez " + state.score + " pontos.";
+      if (state.isNewRecord) text += " 🏆 Novo recorde!";
 
-  // ================== DRAW ==================
-  function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-    ctx.drawImage(carImg, car.x, car.y, car.width, car.height);
-
-    balls.forEach(ball => {
-      ctx.beginPath();
-      ctx.arc(ball.x + 20, ball.y + 20, 20, 0, Math.PI * 2);
-      ctx.fillStyle = "#fff";
-      ctx.fill();
-      ctx.strokeStyle = "#000";
-      ctx.stroke();
-
-      ctx.fillStyle = "#000";
-      ctx.font = "16px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText(ball.value, ball.x + 20, ball.y + 26);
-    });
-
-    if (paused && !gameOver) {
-      ctx.fillStyle = "rgba(0,0,0,0.4)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#fff";
-      ctx.font = "32px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("⏸️ Pausado", canvas.width / 2, canvas.height / 2);
+      showOverlay("Fim de jogo", text, "Jogar novamente", restart);
+      announce("Fim de jogo. " + text);
     }
 
-    if (gameOver) {
-      ctx.fillStyle = "rgba(0,0,0,0.7)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // ---- Imagens ----
+    function computeCarTrim() {
+      if (!carImg.complete || !carImg.naturalWidth) return;
+      const w = carImg.naturalWidth;
+      const h = carImg.naturalHeight;
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      const cx = c.getContext ? c.getContext("2d") : null;
+      if (!cx) return;
+      cx.drawImage(carImg, 0, 0);
+      let data;
+      try {
+        data = cx.getImageData(0, 0, w, h).data;
+      } catch (e) {
+        return;
+      }
+      let minX = w, minY = h, maxX = -1, maxY = -1;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (data[(y * w + x) * 4 + 3] > 10) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX < 0) return;
+      carTrim.sx = minX;
+      carTrim.sy = minY;
+      carTrim.sw = maxX - minX + 1;
+      carTrim.sh = maxY - minY + 1;
+    }
 
-      ctx.fillStyle = "#fff";
-      ctx.font = "48px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 40);
+    // Redimensiona o carro usando a parte visível da imagem (sem o padding transparente)
+    // e o mantém mais acima do canto inferior do canvas.
+    function applyCarGeometry() {
+      if (!carTrim.sw || !carTrim.sh) return;
+      const aspect = carTrim.sw / carTrim.sh;
+      car.width = CAR_WIDTH;
+      car.height = Math.max(20, Math.round(car.width / aspect));
+      car.y = canvas.height - car.height - CAR_BOTTOM_OFFSET;
+      if (car.y < 0) car.y = 0;
+      car.x = canvas.width / 2 - car.width / 2;
+    }
 
-      ctx.font = "20px Arial";
-      ctx.fillText(
-        `Pontuação: ${score}`,
-        canvas.width / 2,
-        canvas.height / 2 + 10
-      );
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      if (isNewRecord) {
-        ctx.fillStyle = "#FFD700";
-        ctx.fillText(
-          "🏆 NOVO RECORDE!",
-          canvas.width / 2,
-          canvas.height / 2 + 50
+      if (background.complete && background.naturalWidth) {
+        const iw = background.naturalWidth;
+        const ih = background.naturalHeight;
+        const scale = Math.max(canvas.width / iw, canvas.height / ih) * BG_SCALE;
+        const dw = iw * scale;
+        const dh = ih * scale;
+        const dx = (canvas.width - dw) / 2;
+        const dy = canvas.height - dh;
+        ctx.drawImage(background, dx, dy, dw, dh);
+      } else {
+        ctx.fillStyle = "#cde7c5";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      if (carImg.complete && carImg.naturalWidth) {
+        const src =
+          carTrim.sw && carTrim.sh
+            ? carTrim
+            : { sx: 0, sy: 0, sw: carImg.naturalWidth, sh: carImg.naturalHeight };
+        ctx.drawImage(
+          carImg,
+          src.sx,
+          src.sy,
+          src.sw,
+          src.sh,
+          car.x,
+          car.y,
+          car.width,
+          car.height
         );
       } else {
-        ctx.fillStyle = "#ccc";
-        ctx.fillText(
-          `Recorde: ${lastHighScore}`,
-          canvas.width / 2,
-          canvas.height / 2 + 50
-        );
+        ctx.fillStyle = "#2563eb";
+        ctx.fillRect(car.x, car.y, car.width, car.height);
       }
 
-      ctx.fillStyle = "#fff";
-      ctx.fillText(
-        "Clique para jogar novamente",
-        canvas.width / 2,
-        canvas.height / 2 + 90
+      for (let i = 0; i < state.balls.length; i++) {
+        const ball = state.balls[i];
+        ctx.beginPath();
+        ctx.arc(ball.x + BALL_RADIUS, ball.y + BALL_RADIUS, BALL_RADIUS, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#1f2937";
+        ctx.stroke();
+
+        ctx.fillStyle = "#111827";
+        ctx.font = "bold 18px Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(ball.value), ball.x + BALL_RADIUS, ball.y + BALL_RADIUS + 1);
+      }
+    }
+
+    // ---- Controles ----
+    function isTypingTarget(target) {
+      if (!target) return false;
+      const tag = target.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target.isContentEditable
       );
     }
-  }
 
-  // ================== MODAL ==================
-  function saveRecordName() {
-    const input = document.getElementById("recordNameInput");
-    let name = input.value.trim();
+    function handleKeyDown(event) {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        input.left = true;
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        input.right = true;
+        return;
+      }
+      if (isTypingTarget(event.target)) return;
+      if (event.target && event.target.tagName === "BUTTON") return;
 
-    if (!name || name.length < 2) name = "Jogador";
-
-    localStorage.setItem("playerName", name);
-
-    lastHighScore = GameStorage.updateScore(
-      "car-math",
-      name,
-      score
-    );
-
-    updateHighScoreUI();
-
-    document
-      .getElementById("recordModal")
-      .classList.add("hidden");
-
-    paused = false;
-  }
-
-  // ================== CONTROLE ==================
-  function setMode(mode) {
-    gameMode = mode;
-    restartGame();
-  }
-
-  function restartGame() {
-    score = 0;
-    scoreEl.innerText = score;
-    balls = [];
-    gameOver = false;
-    gameOverHandled = false;
-    restartAllowed = false;
-    paused = false;
-    isNewRecord = false;
-    lastHighScore = 0;
-    newQuestion();
-    updateHighScoreUI();
-  }
-
-  function updateHighScoreUI() {
-    const data = GameStorage.get("car-math");
-
-    if (data && data.highScore) {
-      highScoreNameEl.innerText = data.player || "Jogador";
-      highScoreValueEl.innerText = data.highScore;
-    } else {
-      highScoreNameEl.innerText = "---";
-      highScoreValueEl.innerText = "0";
+      if (event.key === " " || event.key === "p" || event.key === "P") {
+        event.preventDefault();
+        togglePause();
+      } else if (event.key === "r" || event.key === "R") {
+        restart();
+      } else if (event.key === "Enter" && state.gameOver) {
+        restart();
+      }
     }
-  }
 
-  // ================== LOOP ==================
-  function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
-  }
+    function handleKeyUp(event) {
+      if (event.key === "ArrowLeft") input.left = false;
+      if (event.key === "ArrowRight") input.right = false;
+    }
 
-  // ================== START ==================
-  let loaded = 0;
-  function startWhenReady() {
-    loaded++;
-    if (loaded === 2) {
-      updateHighScoreUI();
+    function bindHold(button, prop) {
+      if (!button) return;
+      on(button, "pointerdown", function (event) {
+        event.preventDefault();
+        input[prop] = true;
+        try {
+          button.setPointerCapture(event.pointerId);
+        } catch (e) {
+          /* ignore */
+        }
+      });
+      const release = function () {
+        input[prop] = false;
+      };
+      on(button, "pointerup", release);
+      on(button, "pointercancel", release);
+      on(button, "lostpointercapture", release);
+      on(button, "contextmenu", function (e) {
+        e.preventDefault();
+      });
+    }
+
+    function togglePause() {
+      if (state.gameOver) return;
+      state.paused = !state.paused;
+      input.left = false;
+      input.right = false;
+      if (el.pauseBtn) {
+        el.pauseBtn.textContent = state.paused ? "▶️ Continuar" : "⏸️ Pausar";
+        el.pauseBtn.setAttribute("aria-pressed", String(state.paused));
+      }
+      if (state.paused) {
+        showOverlay("⏸️ Pausado", "Respire e continue quando quiser.", "Continuar", togglePause);
+      } else {
+        hideOverlay();
+      }
+      announce(state.paused ? "Jogo pausado." : "Jogo retomado.");
+    }
+
+    function syncModeButtons() {
+      el.modeBtns.forEach(function (btn) {
+        const selected = btn.getAttribute("data-mode") === state.mode;
+        btn.classList.toggle("is-selected", selected);
+        btn.setAttribute("aria-pressed", String(selected));
+      });
+    }
+
+    function syncDiffButtons() {
+      const current = Object.keys(L.DIFFICULTIES).find(function (key) {
+        return L.DIFFICULTIES[key].startPhase === state.startPhase;
+      });
+      el.diffBtns.forEach(function (btn) {
+        const selected = btn.getAttribute("data-difficulty") === current;
+        btn.classList.toggle("is-selected", selected);
+        btn.setAttribute("aria-pressed", String(selected));
+      });
+    }
+
+    function gameInProgress() {
+      return initialized && !state.gameOver && state.score > 0;
+    }
+
+    function applyMode(mode) {
+      if (!L.isValidOperation(mode) || mode === state.mode) return;
+      state.mode = mode;
+      syncModeButtons();
+      restart();
+    }
+
+    function requestModeChange(mode) {
+      if (mode === state.mode) return;
+      if (gameInProgress()) {
+        askConfirm(
+          "Trocar de operação vai reiniciar a partida e zerar os pontos.",
+          function () {
+            closeConfirm();
+            applyMode(mode);
+          }
+        );
+      } else {
+        applyMode(mode);
+      }
+    }
+
+    function applyDifficulty(key) {
+      const diff = L.DIFFICULTIES[key];
+      if (!diff || diff.startPhase === state.startPhase) return;
+      state.startPhase = diff.startPhase;
+      syncDiffButtons();
+      restart();
+    }
+
+    function requestDifficultyChange(key) {
+      const diff = L.DIFFICULTIES[key];
+      if (!diff || diff.startPhase === state.startPhase) return;
+      if (gameInProgress()) {
+        askConfirm(
+          "Trocar a dificuldade vai reiniciar a partida e zerar os pontos.",
+          function () {
+            closeConfirm();
+            applyDifficulty(key);
+          }
+        );
+      } else {
+        applyDifficulty(key);
+      }
+    }
+
+    // ---- Partida ----
+    function restart() {
+      clearTimeout(levelUpTimer);
+      hideOverlay();
+      closeConfirm();
+
+      progression.reset(state.startPhase);
+      state.score = 0;
+      state.gameOver = false;
+      state.paused = false;
+      state.restartAllowed = false;
+      state.isNewRecord = false;
+      state.lastWrong = null;
+      input.left = false;
+      input.right = false;
+
+      car.x = canvas.width / 2 - CAR_WIDTH / 2;
+
+      if (el.pauseBtn) {
+        el.pauseBtn.textContent = "⏸️ Pausar";
+        el.pauseBtn.setAttribute("aria-pressed", "false");
+      }
+
       newQuestion();
+      updateHud();
+      updateRecordUI();
+      announce("Nova partida. Fase " + progression.phase + ".");
+    }
+
+    // ---- Tela cheia ----
+    function bindFullscreen() {
+      const api = window.jgWindow;
+      if (!api || !api.toggleFullscreen) return;
+      el.fsBtns.forEach(function (btn) {
+        on(btn, "click", function () {
+          api.toggleFullscreen().then(function (value) {
+            el.fsBtns.forEach(function (b) {
+              b.textContent = value ? "🗗 Sair da tela cheia" : "⛶ Tela cheia";
+              b.setAttribute("aria-pressed", String(Boolean(value)));
+            });
+          });
+        });
+      });
+    }
+
+    // ---- Ciclo de vida ----
+    function startGame() {
+      if (initialized) return;
+      initialized = true;
+      bindFullscreen();
+      syncModeButtons();
+      syncDiffButtons();
+      applyCarGeometry();
+      restart();
+      running = true;
       loop();
     }
+
+    function init() {
+      if (initialized) return;
+
+      on(document, "keydown", handleKeyDown);
+      on(document, "keyup", handleKeyUp);
+      on(canvas, "click", function () {
+        if (state.gameOver && state.restartAllowed) restart();
+      });
+
+      if (el.pauseBtn) on(el.pauseBtn, "click", togglePause);
+      if (el.restartBtn) on(el.restartBtn, "click", restart);
+      if (el.confirmOk) {
+        on(el.confirmOk, "click", function () {
+          if (typeof confirmAction === "function") confirmAction();
+        });
+      }
+      if (el.confirmCancel) on(el.confirmCancel, "click", closeConfirm);
+
+      bindHold(el.touchLeft, "left");
+      bindHold(el.touchRight, "right");
+
+      el.modeBtns.forEach(function (btn) {
+        on(btn, "click", function () {
+          requestModeChange(btn.getAttribute("data-mode"));
+        });
+      });
+      el.diffBtns.forEach(function (btn) {
+        on(btn, "click", function () {
+          requestDifficultyChange(btn.getAttribute("data-difficulty"));
+        });
+      });
+
+      background.onload = background.onerror = onImageLoaded;
+      carImg.onload = carImg.onerror = onImageLoaded;
+      background.src = BASE_PATH + "assets/fundo.jpg";
+      carImg.src = BASE_PATH + "assets/carro.png";
+    }
+
+    function onImageLoaded() {
+      imagesLoaded++;
+      if (carImg.complete && carImg.naturalWidth) computeCarTrim();
+      if (imagesLoaded >= 2) startGame();
+    }
+
+    function destroy() {
+      running = false;
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      clearTimeout(levelUpTimer);
+      clearTimeout(feedbackTimer);
+      levelUpTimer = null;
+      feedbackTimer = null;
+
+      for (let i = 0; i < disposers.length; i++) {
+        try {
+          disposers[i]();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+      disposers.length = 0;
+
+      input.left = false;
+      input.right = false;
+      initialized = false;
+      state.gameOver = true;
+    }
+
+    return {
+      init: init,
+      destroy: destroy,
+      focusCanvas: function () {
+        try {
+          canvas.focus();
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    };
   }
 
-  background.onload = startWhenReady;
-  carImg.onload = startWhenReady;
-
-  // ================== API ==================
-  window.carMath = {
-    setMode,
-    restartGame,
-    saveRecordName,
-    setSpeed
-  };
-
-  console.log("🏁 Car Math carregado com sucesso!");
+  window.carMath = createInstance();
 })();

@@ -2,10 +2,12 @@
   "name": "jgames",
   "version": "1.0.0",
   "main": "main.js",
-  "description":"Jogos para crianças",
+  "description": "Jogos educativos para todas as idades",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "test": "node --test test/",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win"
   },
   "keywords": [],
   "author": "João Guimarães",
@@ -21,11 +23,26 @@
       "output": "build"
     },
     "files": [
-      "**/*"
+      "index.html",
+      "main.js",
+      "preload.js",
+      "package.json",
+      "css/**/*",
+      "js/**/*",
+      "games/**/*",
+      "icon.ico"
     ],
     "win": {
       "target": "nsis",
       "icon": "icon.ico"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "icon": "icon.ico",
+      "category": "Education",
+      "maintainer": "João Guimarães"
     }
   }
 }

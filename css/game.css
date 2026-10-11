@@ -1,0 +1,373 @@
+/* ================= Car Math / área de jogo ================= */
+
+.game {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: clamp(10px, 1.6vw, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* ---------------- Cabeçalho: questão + placar ---------------- */
+.game-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.question-box {
+  flex: 1 1 320px;
+  background: linear-gradient(135deg, #eef2ff, #e0f2fe);
+  border: 2px solid #c7d2fe;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+}
+
+.question-label {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.question-text {
+  margin: 2px 0 0;
+  font-size: clamp(1.3rem, 3.4vw, 2rem);
+  font-weight: 800;
+  color: #312e81;
+  letter-spacing: 1px;
+}
+
+.game-hud {
+  display: flex;
+  gap: 10px;
+}
+
+.hud-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  text-align: center;
+  min-width: 88px;
+}
+
+.hud-label {
+  display: block;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.hud-value {
+  display: block;
+  font-size: 1.2rem;
+  color: #0f172a;
+}
+
+.hud-sub {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--muted);
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------- Fase / progresso ---------------- */
+.phase-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phase-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.progress-track {
+  width: 100%;
+  height: 10px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--brand-2), var(--brand));
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+/* ---------------- Canvas ---------------- */
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 2px solid #0f172a;
+  background: #cde7c5;
+  transition: box-shadow 0.15s ease;
+}
+
+.canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 100%;
+  touch-action: none;
+}
+
+.canvas-wrap.flash-correct {
+  box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.55);
+}
+
+.canvas-wrap.flash-wrong {
+  box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.55);
+}
+
+/* ---------------- Overlay ---------------- */
+.game-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 16px;
+}
+
+.game-overlay__card {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  text-align: center;
+  max-width: 460px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.game-overlay__title {
+  margin: 0 0 6px;
+  font-size: 1.3rem;
+  color: #0f172a;
+}
+
+.game-overlay__text {
+  margin: 0 0 14px;
+  color: #334155;
+  font-size: 0.95rem;
+}
+
+/* ---------------- Controles de toque ---------------- */
+.touch-controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.touch-btn {
+  width: 60px;
+  height: 46px;
+  font-size: 1.4rem;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--brand);
+  color: var(--brand);
+  background: #fff;
+  touch-action: none;
+  user-select: none;
+}
+
+.touch-btn:active {
+  background: var(--brand);
+  color: #fff;
+}
+
+/* ---------------- Chips de seleção ---------------- */
+.game-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.control-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  border: 2px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.chip:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.chip.is-selected {
+  background: linear-gradient(135deg, var(--brand), var(--accent));
+  border-color: transparent;
+  color: #fff;
+}
+
+.control-group--actions {
+  margin-left: auto;
+}
+
+.game-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.game-help kbd {
+  background: #0f172a;
+  color: #fff;
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 0.85em;
+}
+
+/* ---------------- Modal de confirmação ---------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 16px;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 20px;
+  text-align: center;
+  width: min(420px, 100%);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+/* ---------------- Responsivo ---------------- */
+@media (max-width: 620px) {
+  .control-group--actions {
+    margin-left: 0;
+  }
+
+  .hud-item {
+    min-width: 74px;
+    padding: 5px 10px;
+  }
+
+  .chip {
+    padding: 3px 9px;
+    font-size: 0.8rem;
+  }
+
+  .touch-btn {
+    width: 54px;
+    height: 42px;
+  }
+
+  /* Telas estreitas: volta ao modo "caber inteiro" para não cortar as bolas. */
+  .canvas-wrap canvas {
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    object-position: center;
+  }
+}
+
+/* Janelas de pouca altura: compacta para caber sem rolar. */
+@media (max-height: 720px) {
+  .game {
+    gap: 6px;
+  }
+
+  .game-help {
+    font-size: 0.78rem;
+  }
+
+  .touch-btn {
+    height: 42px;
+  }
+}
+
+@media (max-height: 640px) {
+  .canvas-wrap {
+    min-height: 100px;
+  }
+}
+
+@media (max-height: 560px) {
+  .game-help {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill,
+  .game-btn,
+  .chip {
+    transition: none;
+  }
+
+  .canvas-wrap {
+    transition: none;
+  }
+}
